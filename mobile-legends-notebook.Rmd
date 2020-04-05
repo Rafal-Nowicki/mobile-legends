@@ -17,6 +17,9 @@ library(latex2exp)
 library(car)
 library(RColorBrewer) 
 library(gtrendsR)
+library(GGally)
+library(plotly)
+library(kableExtra)
 ```
 
 Mobile Legends: Bang Bang is a MOBA game (Multiplayer online battle arena) for mobile devices with Android and iOS developed by Shanghai Moonton. The game was originally released in Asia on 11th of June 2016.
@@ -26,20 +29,24 @@ In the game there are 2 opposing teams consisting of 5 players each. There are a
 The game was getting more and more attention in Poland for a couple of years now. The graph below presents interest over time for google query "Mobile Legends" and "MOBA" in Poland. As you can see around 2017 there was a hugh increase in popularity of the game while interest in MOBA games in general was falling down gradually in past 5 years. However in March and April 2020 they experienced a rapid renaissance. We can probably associate it with a lockdown caused by COVID-19 outbreak.
 
 
-```{r, echo = FALSE}
+```{r, echo = FALSE, message = FALSE}
 results <- gtrends(c("mobile legends", "MOBA"), geo = "PL", time = "2015-01-01 2020-04-04")
 
-res_time <- results$interest_over_time %>%
-  spread(key = keyword, value = hits)
+res_time <- results$interest_over_time 
+```
 
-res_time %>%
-  ggplot(data = ., aes(x = date)) +
-  geom_line(aes(y = MOBA), color = "darkred") +
-  geom_line(aes(y =`mobile legends`), color = "steelblue", linetype = "twodash") +
-  theme_classic() +
-  ggtitle("Interest in 'Mobile Legends' and 'MOBA' in Google (Poland)")
+```{r, echo = FALSE, message = FALSE}
+res_plot <- ggplot(res_time,aes(x = date, y = hits, col = keyword)) +
+  geom_line()+
+  scale_color_manual(values=c("darkred", "steelblue"))+
+  ggtitle("Interest in 'Mobile Legends' and 'MOBA' in Google (Poland)") +
+  theme_classic()+
+  theme(legend.position = "none")
+ 
 
-
+ggplotly(res_plot, dynamicTicks = TRUE, height = 600, width = 850) %>%
+  rangeslider() %>%
+  layout(hovermode = "x")
 ```
 
 
@@ -56,59 +63,70 @@ df <- read.csv("df_ml_story.csv") %>%
   select(-c(3,7,13)) %>%
   arrange(HERO)
 
-df %>%
-  kable()
+kable(df) %>% 
+  kable_styling(fixed_thead = T) %>%
+   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
 ```
 
-First of all we should be interested in the variability of characters' abilities. Below you can see the mean, standard deviation and the coefficient of variation resposively.
+One important thing we should be interested in is the variability of champions characteristics. Below you can see the coefficient of variation (in %).
 
 ```{r, echo = F}
-kable(round(df_mean <- summarise_if(df, is.numeric, mean),2))
+df_mean <- summarise_if(df, is.numeric, mean)
 
-kable(round(df_sd <- summarize_if(df, is.numeric, sd),2))
+df_sd <- summarize_if(df, is.numeric, sd)
 
-kable(df_var_coef <- round((df_sd/df_mean*100),2))
+kable(round((df_sd/df_mean*100),2)) %>%
+   kable_styling()
 ```
 
-The variabiliy of *mana* and *mana regeneration* exeeds 50% whereas for *health points regeneration* and *armor* it's about 20%. We will have to check the data for outliers as those values might be inflated for instance just by a single observation. Rest of the variables vary just a bit (under 10%). 
+The variabiliy of *mana* and *mana regeneration* exeeds 50% whereas for *health points regeneration* and *armor* it's about 20%. We will have to check the data for outliers as those values might be inflated for instance just by a single observation. Rest of the variables vary just a bit (under 10%). The value for magic resistance is constant for every character so we are going to drop that variable in further analysis.
 
 
-Now let's look for some possible relationships between some variables and check their distributions.
+Now let's look for some possible relationships and check distributions of the variables.
 
-```{r}
-df_num <- df[,-c(1,3,11,12)]
+```{r, message= F, warning=F, echo = F}
+df <- select(df, -"MGC_DFN") %>%
+  mutate(HP = HP/1000)
+  
 
-scatterplotMatrix(df_num, pch = 1, col = "grey", regLine = FALSE, smooth = FALSE)
+p <- ggpairs(data=df, columns=2:9, 
+             lower = list(continuous = wrap("points",alpha = 0.5, size=0.5, col = "steelblue")),
+  diag = list(continuous = wrap("densityDiag", fill = "darkred", alpha = 0.8)))+
+  theme_classic()
+
+ggplotly(p, height = 800, width = 850)
 ```
 
 
-We can clearly see some relationships - f.e. mana vs. mana regeneration and health points vs. armor and many more - we are going to investigate them soon. 
 
-There are some outliers - Note a champion whose health point regeneration ability is almost 3 times more powerful than the mean for the sample. Let's find out who is that.
+We can see some relationships - f.e. *mana* vs. *mana regeneration* and *health points* vs. *armor* and many more - we are going to investigate them soon. 
 
-```{r}
-df[which.max(df$HP_RGN),] %>% kable()
+There are some outliers - note a champion whose *health point regeneration* ability is almost 3 times more powerful than the mean for the sample. We can also see a champion whose *health points* ability is about 2 times weaker than the average. Let's find out who are those people.
+
+```{r, echo = FALSE }
+df[c(which.max(df$HP_RGN), which.min(df$HP)), ] %>%
+  kable() %>%
+  kable_styling()
 ```
 
-We can also see a champion whose health points ability is about 2 times weaker than the average.
-Who is that?
-
-```{r}
-df[which.min(df$HP),] %>% kable()
-```
 
 For the sake of analysis we are going to remove both of them from our "sample".
 
-Density functions for variables like movement speed, mana and mana regenerations seem to be bimodal - it is clear sign there are some subpopulations in our "sample" so it may be reasonable to conduct cluster analysis.
+Density functions for variables like movement speed, mana and mana regenerations seem to be bimodal - it is clear sign there are some subpopulations in our "sample" so it is reasonable to conduct cluster analysis.
 
-Next we can calculate the correlation matrix.
-```{r}
-df_num <- df[-c(which.max(df_num$HP_RGN), which.min(df_num$HP)),-c(1,3,11,12)]
+
+
+We can check the correlations and their significance - just for fun since *Simson paradox* might be present. 
+
+```{r, echo = FALSE}
+df_num <- df[-c(which.max(df$HP_RGN), which.min(df$HP)),-c(1,10,11)]
 correlations <- cor(df_num)
 p_mat <- cor_pmat(df_num)
 
 ggcorrplot(correlations, hc.order = TRUE, type = "lower", lab = TRUE, digits = 1,
            p.mat = p_mat, ggtheme = ggplot2::theme_classic, sig.level = 0.001,
-           title = "Pearson's correlation matrix", legend.title = TeX("$\\rho$ value"),)
+           colors = c("steelblue", "white", "darkred"),
+           title = "Pearson's correlation matrix", legend.title = latex2exp :: TeX("$\\rho$ value"),)
 
 ```
+
