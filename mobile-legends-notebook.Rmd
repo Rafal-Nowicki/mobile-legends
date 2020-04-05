@@ -1,10 +1,9 @@
 ---
-title: "Mobile legend clustering"
+title: "Mobile legend - cluster analysis"
 author: "Rafal Nowicki"
 date: "5 04 2020"
 output: html_document
 ---
-The goal of this analysis is to cluster Mobile Legends: Bang Bang characters based on their characteristics. In order to do so PCA method and k-means will be implemented.
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
@@ -17,10 +16,39 @@ library(see)
 library(latex2exp)
 library(car)
 library(RColorBrewer) 
+library(gtrendsR)
 ```
 
-## Mobile legends - champions analysis
-First of all let's have a look how our data looks like. One important remark is although the list below present all playable characters right now we are going to consider it as sample since the characters' set is being constantly updated - in that way statistical inference can be justified.
+Mobile Legends: Bang Bang is a MOBA game (Multiplayer online battle arena) for mobile devices with Android and iOS developed by Shanghai Moonton. The game was originally released in Asia on 11th of June 2016.
+
+In the game there are 2 opposing teams consisting of 5 players each. There are around 90 champions (character) to choose from. Each character is different and may be used for different purposes depending on their skills and abillities. In that way one can distinguish mages, assasins and some more types of champions. Main task is to destroy enemies' defence towers resulting in concquering their base (yup, it's very boring but somehow very popular).
+
+The game was getting more and more attention in Poland for a couple of years now. The graph below presents interest over time for google query "Mobile Legends" and "MOBA" in Poland. As you can see around 2017 there was a hugh increase in popularity of the game while interest in MOBA games in general was falling down gradually in past 5 years. However in March and April 2020 they experienced a rapid renaissance. We can probably associate it with a lockdown caused by COVID-19 outbreak.
+
+
+```{r, echo = FALSE}
+results <- gtrends(c("mobile legends", "MOBA"), geo = "PL", time = "2015-01-01 2020-04-04")
+
+res_time <- results$interest_over_time %>%
+  spread(key = keyword, value = hits)
+
+res_time %>%
+  ggplot(data = ., aes(x = date)) +
+  geom_line(aes(y = MOBA), color = "darkred") +
+  geom_line(aes(y =`mobile legends`), color = "steelblue", linetype = "twodash") +
+  theme_classic() +
+  ggtitle("Interest in 'Mobile Legends' and 'MOBA' in Google (Poland)")
+
+
+```
+
+
+As stated above there are several types of characters in that game so we will try to label them based on their characteristics. In order to do so we are going to implement Principal Component Analysis to reduce dimentionallity and then k-means method to cluster them. Although the labels are known such an analysis may be helpful for maintaining characters' skill sets in a balance way.
+
+## Data description
+First of all let's have a look on how our data looks like. In the table below you can find all characters in alphabetical order. 
+
+One important remark is although the list below present all playable characters right now we are going to consider it as sample since the characters' set is being constantly updated with new characters - in that way statistical inference can be justified.
 
 ```{r, echo = FALSE}
 df <- read.csv("df_ml_story.csv") %>%
@@ -32,7 +60,7 @@ df %>%
   kable()
 ```
 
-First of all we should be interested in the variability of characters' abilities.
+First of all we should be interested in the variability of characters' abilities. Below you can see the mean, standard deviation and the coefficient of variation resposively.
 
 ```{r, echo = F}
 kable(round(df_mean <- summarise_if(df, is.numeric, mean),2))
@@ -42,6 +70,7 @@ kable(round(df_sd <- summarize_if(df, is.numeric, sd),2))
 kable(df_var_coef <- round((df_sd/df_mean*100),2))
 ```
 
+The variabiliy of *mana* and *mana regeneration* exeeds 50% whereas for *health points regeneration* and *armor* it's about 20%. We will have to check the data for outliers as those values might be inflated for instance just by a single observation. Rest of the variables vary just a bit (under 10%). 
 
 
 Now let's look for some possible relationships between some variables and check their distributions.
