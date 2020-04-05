@@ -1,0 +1,85 @@
+---
+title: "Mobile legend clustering"
+author: "Rafal Nowicki"
+date: "5 04 2020"
+output: html_document
+---
+The goal of this analysis is to cluster Mobile Legends: Bang Bang characters based on their characteristics. In order to do so PCA method and k-means will be implemented.
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(ggcorrplot)
+library(magrittr)
+library(knitr)
+library(ggcorrplot)
+library(see)
+library(latex2exp)
+library(car)
+library(RColorBrewer) 
+```
+
+## Mobile legends - champions analysis
+First of all let's have a look how our data looks like. One important remark is although the list below present all playable characters right now we are going to consider it as sample since the characters' set is being constantly updated - in that way statistical inference can be justified.
+
+```{r, echo = FALSE}
+df <- read.csv("df_ml_story.csv") %>%
+  as_tibble() %>%
+  select(-c(3,7,13)) %>%
+  arrange(HERO)
+
+df %>%
+  kable()
+```
+
+First of all we should be interested in the variability of characters' abilities.
+
+```{r, echo = F}
+kable(round(df_mean <- summarise_if(df, is.numeric, mean),2))
+
+kable(round(df_sd <- summarize_if(df, is.numeric, sd),2))
+
+kable(df_var_coef <- round((df_sd/df_mean*100),2))
+```
+
+
+
+Now let's look for some possible relationships between some variables and check their distributions.
+
+```{r}
+df_num <- df[,-c(1,3,11,12)]
+
+scatterplotMatrix(df_num, pch = 1, col = "grey", regLine = FALSE, smooth = FALSE)
+```
+
+
+We can clearly see some relationships - f.e. mana vs. mana regeneration and health points vs. armor and many more - we are going to investigate them soon. 
+
+There are some outliers - Note a champion whose health point regeneration ability is almost 3 times more powerful than the mean for the sample. Let's find out who is that.
+
+```{r}
+df[which.max(df$HP_RGN),] %>% kable()
+```
+
+We can also see a champion whose health points ability is about 2 times weaker than the average.
+Who is that?
+
+```{r}
+df[which.min(df$HP),] %>% kable()
+```
+
+For the sake of analysis we are going to remove both of them from our "sample".
+
+Density functions for variables like movement speed, mana and mana regenerations seem to be bimodal - it is clear sign there are some subpopulations in our "sample" so it may be reasonable to conduct cluster analysis.
+
+Next we can calculate the correlation matrix.
+```{r}
+df_num <- df[-c(which.max(df_num$HP_RGN), which.min(df_num$HP)),-c(1,3,11,12)]
+correlations <- cor(df_num)
+p_mat <- cor_pmat(df_num)
+
+ggcorrplot(correlations, hc.order = TRUE, type = "lower", lab = TRUE, digits = 1,
+           p.mat = p_mat, ggtheme = ggplot2::theme_classic, sig.level = 0.001,
+           title = "Pearson's correlation matrix", legend.title = TeX("$\\rho$ value"),)
+
+```
