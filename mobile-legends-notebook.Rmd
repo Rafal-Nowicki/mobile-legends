@@ -20,7 +20,12 @@ library(gtrendsR)
 library(GGally)
 library(plotly)
 library(kableExtra)
+library(factoextra)
+library(pca3d)
+library(Hmisc)
 ```
+
+## Preliminary
 
 Mobile Legends: Bang Bang is a MOBA game (Multiplayer online battle arena) for mobile devices with Android and iOS developed by Shanghai Moonton. The game was originally released in Asia on 11th of June 2016.
 
@@ -63,20 +68,32 @@ df <- read.csv("df_ml_story.csv") %>%
   select(-c(3,7,13)) %>%
   arrange(HERO)
 
-kable(df) %>% 
-  kable_styling(fixed_thead = T) %>%
-   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+var.labels = c(HERO="Hero", MV_SPD="Movement speed",
+               MGC_DFN = "Magic Resistance", MANA = "Mana",
+               HP_RGN = "HP Regen Rate", P_ATK = "Physical Attack",
+               P_DFN = "Armor", HP = "Health points", 
+               ATK_SPD = "Attack speed", MANA_RGN = "Mana regen rate",
+               ROLE = "Role", SPECIALLY = "Special")
+
+label(df) = as.list(var.labels[match(names(df), names(var.labels))])
+
+
+kable(df, col.names = label(df)) %>% 
+  kable_styling(fixed_thead = T, font_size = 11) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
 ```
 
 One important thing we should be interested in is the variability of champions characteristics. Below you can see the coefficient of variation (in %).
 
 ```{r, echo = F}
-df_mean <- summarise_if(df, is.numeric, mean)
+cv <- function(x){
+  round((sd(x)/mean(x))*100,2)
+}
 
-df_sd <- summarize_if(df, is.numeric, sd)
-
-kable(round((df_sd/df_mean*100),2)) %>%
-   kable_styling()
+df %>%
+summarize_if(is.numeric, cv) %>%
+  kable(col.names = label(df)[-c(1,11,12)]) %>%
+  kable_styling(font_size = 12)
 ```
 
 The variabiliy of *mana* and *mana regeneration* exeeds 50% whereas for *health points regeneration* and *armor* it's about 20%. We will have to check the data for outliers as those values might be inflated for instance just by a single observation. Rest of the variables vary just a bit (under 10%). The value for magic resistance is constant for every character so we are going to drop that variable in further analysis.
@@ -105,20 +122,13 @@ There are some outliers - note a champion whose *health point regeneration* abil
 
 ```{r, echo = FALSE }
 df[c(which.max(df$HP_RGN), which.min(df$HP)), ] %>%
-  kable() %>%
-  kable_styling()
+  kable(col.names = label(df)) %>%
+  kable_styling(font_size = 11)
 ```
 
 
-For the sake of analysis we are going to remove both of them from our "sample".
 
-Density functions for variables like movement speed, mana and mana regenerations seem to be bimodal - it is clear sign there are some subpopulations in our "sample" so it is reasonable to conduct cluster analysis.
-
-
-
-We can check the correlations and their significance - just for fun since *Simson paradox* might be present. 
-
-```{r, echo = FALSE}
+```{r, echo = FALSE, out.width= "65%", out.extra='style="float:right; padding:10px"'}
 df_num <- df[-c(which.max(df$HP_RGN), which.min(df$HP)),-c(1,10,11)]
 correlations <- cor(df_num)
 p_mat <- cor_pmat(df_num)
@@ -128,5 +138,95 @@ ggcorrplot(correlations, hc.order = TRUE, type = "lower", lab = TRUE, digits = 1
            colors = c("steelblue", "white", "darkred"),
            title = "Pearson's correlation matrix", legend.title = latex2exp :: TeX("$\\rho$ value"),)
 
+
 ```
+
+For the sake of analysis we are going to remove both of them from our "sample".
+
+Density functions for variables like movement speed, mana and mana regenerations seem to be bimodal - it is clear sign there are some subpopulations in our "sample" so it is reasonable to conduct cluster analysis.
+
+
+
+We can check the correlations and their significance - just for fun since [Simson paradox](https://en.wikipedia.org/wiki/Simpson%27s_paradox) might be present. 
+
+
+## Principal Compontent Analysis
+
+Firstly let's calculate prinipal components using standarized data. 
+
+```{r, echo = FALSE, warning = FALSE}
+rownames(df) <- df$HERO
+pca <- prcomp(df[-c(1,10,11)], scale = TRUE)
+```
+
+
+As scree plot would not tell us much we should choose the number of compontents based on eigenvalue thumb rule. Each of three top components has eigenvalue > 1, i.e. "contains more information than a single variable". 
+
+
+
+```{r, echo = FALSE}
+eig.tab <- data.frame(rownames(get_eigenvalue(pca)), round(get_eigenvalue(pca),2))
+
+colnames(eig.tab) <- c("PCA", "Eigenvalue", "Variance percent", "Cumulative variance percent")
+
+rownames(eig.tab) <- paste0("PCA",1:8)
+  
+eig.tab[,-1] %>%
+  kable()%>%
+  kable_styling() %>%
+  row_spec(1:4, bold = T, color = "white", background = "darkred")
+```
+
+As you can see in the table above they account for about 73,5% of data variability - that's fine. However in order to make interpretations of the components easier we are going to incorporate 4 of them in our further analysis. In that way almost 83% of the variance will be explained.
+
+Let's have a look now on the PCA loadings so we can think of some resonable interpretations.
+
+```{r, echo = FALSE}
+pca.lo <- data.frame(rownames(pca$rotation), round(pca$rotation,3))
+colnames(pca.lo)[1] <- "Variable"
+
+pca.lo%>%
+  mutate_if(is.numeric, function(x) {
+    cell_spec(x, bold = T, 
+              color = spec_color(x, end = 0.5),
+              font_size = spec_font_size(abs(x)))
+  })%>%
+  mutate(Variable = cell_spec(
+    Variable, color = "white", bold = T,
+    background = spec_color(1:8, end = 0.9, option = "C", direction = -1)
+  )) %>%
+  kable(escape = F, align = "c") %>%
+  kable_styling(c("striped", "condensed"), full_width = F, position = "float_right")
+
+```
+
+The most obvious interpretation has definitely PC2. We can think of it as `durability` of a character because the loadings' values by *health points* and *health points regeneration* are large and influence PC in one direction.
+
+Next quite resonable interpretation would be `physical strength` for PC4 because of extend of *attack points* influence and also becasue of the opposite sign of *armor* variable.
+
+`Readiness to fight` would be the label for PC3. Since both signs of loadings by variable *mana* and *mana regeneration* are strongly negative, we would expect all magical champions to have very low value of PC3. 
+
+As we cannot came up with anything better for PC1 let's call it for now `playability` and later on maybe we will be able to review that issue.
+
+If we would include PC5 we would probably call it `defensive capability`. For more precise labeling we should talk to some gamers with experience and knowledge about the game - maybe someday i will upload it with my recent dicoveries :)
+
+## Clusters
+
+Now as we reduced dimentionality we can proceed to the most exciting part of our analysis - clusters distinguishment. To do so we will implement k-means algorithm.
+
+
+
+
+
+
+
+```{r, echo = FALSE}
+#pca3d(pca, biplot = TRUE)
+#snapshotPCA3d(file="first_plot.png")
+#![first_plot.png](first_plot.png)
+```
+
+
+
+
 
