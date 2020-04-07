@@ -4,7 +4,7 @@ author: "Rafal Nowicki"
 date: "5 04 2020"
 output: html_document
 ---
-
+rm(list = ls())
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(tidyverse)
@@ -23,13 +23,16 @@ library(kableExtra)
 library(factoextra)
 library(pca3d)
 library(Hmisc)
+library(ggdendro)
+library(dendextend)
+library(gridExtra)
 ```
 
 ## Preliminary
 
 Mobile Legends: Bang Bang is a MOBA game (Multiplayer online battle arena) for mobile devices with Android and iOS developed by Shanghai Moonton. The game was originally released in Asia on 11th of June 2016.
 
-In the game there are 2 opposing teams consisting of 5 players each. There are around 90 champions (character) to choose from. Each character is different and may be used for different purposes depending on their skills and abillities. In that way one can distinguish mages, assasins and some more types of champions. Main task is to destroy enemies' defence towers resulting in concquering their base (yup, it's very boring but somehow very popular).
+In the game there are 2 opposing teams consisting of 5 players each. Players choose a character they will play with before game starts. As for now there are around 90 champions (character) to choose from. Each character is different and may be used for different purposes depending on their skills and abillities. In that way one can distinguish mages, assasins and some more types of champions. Main task is to destroy enemies' defence towers resulting in concquering their base (yup, it's very boring but somehow very popular).
 
 The game was getting more and more attention in Poland for a couple of years now. The graph below presents interest over time for google query "Mobile Legends" and "MOBA" in Poland. As you can see around 2017 there was a hugh increase in popularity of the game while interest in MOBA games in general was falling down gradually in past 5 years. However in March and April 2020 they experienced a rapid renaissance. We can probably associate it with a lockdown caused by COVID-19 outbreak.
 
@@ -66,9 +69,10 @@ One important remark is although the list below present all playable characters 
 df <- read.csv("df_ml_story.csv") %>%
   as_tibble() %>%
   select(-c(3,7,13)) %>%
-  arrange(HERO)
+  arrange(HERO)%>%
+  rowid_to_column("Id")
 
-var.labels = c(HERO="Hero", MV_SPD="Movement speed",
+var.labels = c(Id = "Id", HERO="Hero", MV_SPD="Movement speed",
                MGC_DFN = "Magic Resistance", MANA = "Mana",
                HP_RGN = "HP Regen Rate", P_ATK = "Physical Attack",
                P_DFN = "Armor", HP = "Health points", 
@@ -79,7 +83,7 @@ label(df) = as.list(var.labels[match(names(df), names(var.labels))])
 
 
 kable(df, col.names = label(df)) %>% 
-  kable_styling(fixed_thead = T, font_size = 11) %>%
+  kable_styling(fixed_thead = T, font_size = 10.75) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
 ```
 
@@ -91,8 +95,9 @@ cv <- function(x){
 }
 
 df %>%
-summarize_if(is.numeric, cv) %>%
-  kable(col.names = label(df)[-c(1,11,12)]) %>%
+  mutate(Id = as.character(Id))%>%
+  summarize_if(is.numeric, cv) %>%
+  kable(col.names = label(df)[-c(1,2,12,13)]) %>%
   kable_styling(font_size = 12)
 ```
 
@@ -106,7 +111,7 @@ df <- select(df, -"MGC_DFN") %>%
   mutate(HP = HP/1000)
   
 
-p <- ggpairs(data=df, columns=2:9, 
+p <- ggpairs(data=df, columns=3:10, 
              lower = list(continuous = wrap("points",alpha = 0.5, size=0.5, col = "steelblue")),
   diag = list(continuous = wrap("densityDiag", fill = "darkred", alpha = 0.8)))+
   theme_classic()
@@ -129,7 +134,11 @@ df[c(which.max(df$HP_RGN), which.min(df$HP)), ] %>%
 
 
 ```{r, echo = FALSE, out.width= "65%", out.extra='style="float:right; padding:10px"'}
-df_num <- df[-c(which.max(df$HP_RGN), which.min(df$HP)),-c(1,10,11)]
+df_num <- df[,-c(1,2,11,12)] %>%
+  as.data.frame()
+
+rownames(df_num) <- df$HERO
+df_num<- df_num[-c(which.max(df$HP_RGN), which.min(df$HP)), ]
 correlations <- cor(df_num)
 p_mat <- cor_pmat(df_num)
 
@@ -155,8 +164,7 @@ We can check the correlations and their significance - just for fun since [Simso
 Firstly let's calculate prinipal components using standarized data. 
 
 ```{r, echo = FALSE, warning = FALSE}
-rownames(df) <- df$HERO
-pca <- prcomp(df[-c(1,10,11)], scale = TRUE)
+pca <- prcomp(df_num, scale = TRUE)
 ```
 
 
@@ -169,7 +177,7 @@ eig.tab <- data.frame(rownames(get_eigenvalue(pca)), round(get_eigenvalue(pca),2
 
 colnames(eig.tab) <- c("PCA", "Eigenvalue", "Variance percent", "Cumulative variance percent")
 
-rownames(eig.tab) <- paste0("PCA",1:8)
+rownames(eig.tab) <- paste0("PC",1:8)
   
 eig.tab[,-1] %>%
   kable()%>%
@@ -177,7 +185,7 @@ eig.tab[,-1] %>%
   row_spec(1:4, bold = T, color = "white", background = "darkred")
 ```
 
-As you can see in the table above they account for about 73,5% of data variability - that's fine. However in order to make interpretations of the components easier we are going to incorporate 4 of them in our further analysis. In that way almost 83% of the variance will be explained.
+As you can see in the table above they account for about 75,6% of data variability - that's fine. However in order to make interpretations of the components easier we are going to incorporate 4 of them in our further analysis. In that way almost 85,5% of the variance will be explained.
 
 Let's have a look now on the PCA loadings so we can think of some resonable interpretations.
 
@@ -210,16 +218,6 @@ As we cannot came up with anything better for PC1 let's call it for now `playabi
 
 If we would include PC5 we would probably call it `defensive capability`. For more precise labeling we should talk to some gamers with experience and knowledge about the game - maybe someday i will upload it with my recent dicoveries :)
 
-## Clusters
-
-Now as we reduced dimentionality we can proceed to the most exciting part of our analysis - clusters distinguishment. To do so we will implement k-means algorithm.
-
-
-
-
-
-
-
 ```{r, echo = FALSE}
 #pca3d(pca, biplot = TRUE)
 #snapshotPCA3d(file="first_plot.png")
@@ -227,6 +225,33 @@ Now as we reduced dimentionality we can proceed to the most exciting part of our
 ```
 
 
+```{r, include=FALSE, echo=FALSE}
+#Obtaining pca scores for our observation
+df_pca <- get_pca_ind(pca)
+df_pca <- df_pca$coord[, 1:4]
+```
+
+
+## Clusters
+
+Now as we reduced dimentionality we can proceed to the most exciting part of our analysis - clusters distinguishment. To do so we will implement hierarchical algorithm. First let's start with computing distances between observation. For that purpose we will use first and second order of Minkowski metrics, i.e. Mannhatan and Euclidean distances responsively.
+
+
+```{r, echo =FALSE}
+rownames(df_pca)  <- rownames(df_num)
+distance.e <- get_dist(df_pca, method = "euclidean")
+distance.m <- get_dist(df_pca, method = "manhattan")
+
+dist.e.plot <- fviz_dist(distance.e, gradient = list(low = "steelblue", mid = "white", high = "darkred"), lab_size = 4)
+
+dist.m.plot <- fviz_dist(distance.m, gradient = list(low = "steelblue", mid = "white", high = "darkred"), lab_size = 4)
+
+grid.arrange(dist.e.plot, dist.m.plot)
+
+```
 
 
 
+```{r}
+#hc <- hclust(d.e, method = "ward.D2")
+```
