@@ -79,10 +79,10 @@ var.labels = c(Id = "Id", HERO="Hero", MV_SPD="Movement speed",
                ATK_SPD = "Attack speed", MANA_RGN = "Mana regen rate",
                ROLE = "Role", SPECIALLY = "Special")
 
-label(df) = as.list(var.labels[match(names(df), names(var.labels))])
+Hmisc::label(df) = as.list(var.labels[match(names(df), names(var.labels))])
 
 
-kable(df, col.names = label(df)) %>% 
+kable(df, col.names = Hmisc::label(df)) %>% 
   kable_styling(fixed_thead = T, font_size = 10.75) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
 ```
@@ -97,7 +97,7 @@ cv <- function(x){
 df %>%
   mutate(Id = as.character(Id))%>%
   summarize_if(is.numeric, cv) %>%
-  kable(col.names = label(df)[-c(1,2,12,13)]) %>%
+  kable(col.names = Hmisc::label(df)[-c(1,2,12,13)]) %>%
   kable_styling(font_size = 12)
 ```
 
