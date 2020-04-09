@@ -1,9 +1,8 @@
 ---
-title: "Mobile legend - cluster analysis"
+title: "Mobile legend analysis"
 author: "Rafal Nowicki"
 date: "5 04 2020"
 output: html_document
-code_folding: hide
 ---
 
 ```{r setup, include=FALSE}
@@ -23,6 +22,7 @@ library(GGally)
 library(plotly)
 library(kableExtra)
 library(factoextra)
+library(pracma)
 library(pca3d)
 library(Hmisc)
 library(ggdendro)
@@ -34,9 +34,9 @@ library(gridExtra)
 
 Mobile Legends: Bang Bang is a MOBA game (Multiplayer online battle arena) for mobile devices with Android and iOS developed by Shanghai Moonton. The game was originally released in Asia on 11th of June 2016.
 
-In the game there are 2 opposing teams consisting of 5 players each. Players choose a character they will play with before game starts. As for now there are around 90 champions (character) to choose from. Each character is different and may be used for different purposes depending on their skills and abillities. In that way one can distinguish mages, assasins and some more types of champions. Main task is to destroy enemies' defence towers resulting in concquering their base (yup, it's very boring but somehow very popular).
+In the game there are 2 opposing teams consisting of 5 players each. Players choose a character they will play with before game starts. As for now there are around 90 champions (character) to choose from. Each character is different and may be used for different purposes depending on their skills and abillities. In that way one can distinguish mages, assasins, fighters, supports, tanks and marksmen. Main task is to destroy enemies' defence towers resulting in concquering their base (yup, it's very boring but somehow very popular).
 
-The game was getting more and more attention in Poland for a couple of years now. The graph below presents interest over time for google query "Mobile Legends" and "MOBA" in Poland. As you can see around 2017 there was a hugh increase in popularity of the game while interest in MOBA games in general was falling down gradually in past 5 years. However in March and April 2020 they experienced a rapid renaissance. We can probably associate it with a lockdown caused by COVID-19 outbreak.
+The game was getting more and more attention in Poland for a couple of years now. The graph below presents interest over time for google query "Mobile Legends" and "MOBA" in Poland. As you can see around 2017 there was a hugh increase in popularity of Mobile Legends while interest in MOBA games in general was falling down gradually in past 5 years. However in March and April 2020 they experienced a rapid renaissance. We can probably associate it at least in part with a lockdown caused by COVID-19 outbreak.
 
 
 ```{r, echo = FALSE, message = FALSE}
@@ -60,22 +60,21 @@ ggplotly(res_plot, dynamicTicks = TRUE, height = 600, width = 850) %>%
 ```
 
 
-As stated above there are several types of characters in that game so we will try to label them based on their characteristics. In order to do so we are going to implement Principal Component Analysis to reduce dimentionallity and then k-means method to cluster them. Although the labels are known such an analysis may be helpful for maintaining characters' skill sets in a balance way.
+As stated above there are several types of characters in that game so we will try to label them based on their characteristics. In order to do so we are going to implement Principal Component Analysis to reduce dimentionallity and then a hierarchical algorithm to cluster them. Although the labels are known such the analysis may be helpful for maintaining characters' skillsets in a balance way.
 
 ## Data 
 
 First we have to collect the data. As there is no official site with the data on champions characteristics we will scrape it from [mobile league wiki site](https://mobile-legends.fandom.com/wiki/Mobile_Legends_Wiki). Let's check *robot.txt* file before we start.
 
-```{r, warning=F}
+```{r, warning=F, eval = FALSE, echo = TRUE}
 paths_allowed("https://mobile-legends.fandom.com/wiki/Mobile_Legends_Wiki")
 ```
 
-That's nice - we are allowed to scrape their data. For that purpose we will combine `rvest` package and [selector gadget](https://selectorgadget.com/). Below you can find a brief overview on how to scrape the data.
-Whole scraping/wrangling code is provided in a speparate Rmd file in gitHub repository.
+The upper command returns value `TRUE`. That's nice - we are allowed to scrape their data. For that purpose we will combine `rvest` package and [selector gadget widget](https://selectorgadget.com/). Whole scraping/wrangling code is provided in a speparate Rmd file in gitHub repository.
 
 Let's have a look on how our data looks like. In the table below you can find all characters in alphabetical order. 
 
-One important remark is although the list below present all playable characters right now we are going to consider it as sample since the characters' set is being constantly updated with new characters - in that way statistical inference can be justified.
+One important remark is although the list below present all playable characters right now we will consider it as a sample since the characters set is being constantly updated with new characters - in that way statistical inference can be justified.
 
 ```{r, echo = FALSE}
 load("scraped_skills_data.Rda")
@@ -109,7 +108,7 @@ df %>%
   kable_styling(font_size = 12)
 ```
 
-The variabiliy of *mana* and *mana regeneration* exeeds 50% whereas for *health points regeneration* and *armor* it's about 20%. We will have to check the data for outliers as those values might be inflated for instance just by a single observation. Rest of the variables vary just a bit (under 10%). The value for magic resistance is constant for every character so we are going to drop that variable in further analysis.
+The variabiliy of *mana* and *mana regeneration* exeed 60% whereas for *health points regeneration* and *armor* it's about 16% and 26% responsively. We will have to check the data for outliers as those values might be inflated for instance just by a single observation. Rest of the variables vary just a bit (most of them under 10%). The value for magic resistance is constant almost for every character so we will drop that variable in further analysis.
 
 
 Now let's look for some possible relationships and check distributions of the variables.
@@ -118,35 +117,39 @@ Now let's look for some possible relationships and check distributions of the va
 df %<>% mutate(HP = HP/1000)
   
 
-p <- ggpairs(data=df, columns=3:10, 
+p <- ggpairs(data=df, columns=3:11, 
              lower = list(continuous = wrap("points",alpha = 0.5, size=0.5, col = "steelblue")),
   diag = list(continuous = wrap("densityDiag", fill = "darkred", alpha = 0.8)))+
   theme_classic()
 
-ggplotly(p, height = 800, width = 850)
+ggplotly(p, height = 800, width = 900)
 ```
 
 
 
-We can see some relationships - f.e. *mana* vs. *mana regeneration* and *health points* vs. *armor* and many more - we are going to investigate them soon. 
+We can see some relationships - f.e. *mana* vs. *mana regeneration* and *health points* vs. *armor* and many more - we will investigate them soon. 
 
-There are some outliers - note a champion whose *health point regeneration* ability is almost 3 times more powerful than the mean for the sample. We can also see a champion whose *health points* ability is about 2 times weaker than the average. Let's find out who are those people.
+Density functions for variables *movement speed*, *mana* and *mana regenerations* seem to be bimodal - it is clear sign there are some subpopulations in our "sample" so it is reasonable to conduct cluster analysis.
+
+There are some outliers - note a champion whose *health point regeneration* ability is about 2 times more powerful than the mean for the sample. We can also see a champion whose *health points* ability and *attack points* are extremly high. For the sake of analysis we will remove both of them from our "sample" so that they will not affect clustering results in a significant way. Let's find out who are those people.
 
 ```{r, echo = FALSE }
-df[c(which.max(df$ATK_SPD), which.min(df$HP)), ] %>%
+df[c(which.max(df$HP_RGN), which.max(df$HP)), ] %>%
   kable(col.names = Hmisc::label(df)) %>%
   kable_styling(font_size = 11)
 ```
 
-
+The last thing we can do is to check the correlations and their significance - just to have general view since [Simson paradox](https://en.wikipedia.org/wiki/Simpson%27s_paradox) might be present. 
 
 ```{r, echo = FALSE, out.width= "65%", out.extra='style="float:right; padding:10px"'}
-df_num <- df[,-c(1,2,11,12)] %>%
-  drop_na()%>%
+df_num <- df[,-c(1,2,4,12)] %>%
   as.data.frame()
 
-#rownames(df_num) <- df$HERO
-df_num<- df_num[-c(which.max(df$HP_RGN), which.min(df$HP)), ]
+rownames(df_num) <- df$HERO
+
+df_num<- df_num[-c(which.max(df$HP_RGN), which.max(df$HP)), ] %>%
+  drop_na()
+
 correlations <- cor(df_num)
 p_mat <- cor_pmat(df_num)
 
@@ -154,30 +157,36 @@ ggcorrplot(correlations, hc.order = TRUE, type = "lower", lab = TRUE, digits = 1
            p.mat = p_mat, ggtheme = ggplot2::theme_classic, sig.level = 0.001,
            colors = c("steelblue", "white", "darkred"),
            title = "Pearson's correlation matrix", legend.title = latex2exp :: TeX("$\\rho$ value"),)
-
-
 ```
-
-For the sake of analysis we are going to remove both of them from our "sample".
-
-Density functions for variables like movement speed, mana and mana regenerations seem to be bimodal - it is clear sign there are some subpopulations in our "sample" so it is reasonable to conduct cluster analysis.
-
-
-
-We can check the correlations and their significance - just for fun since [Simson paradox](https://en.wikipedia.org/wiki/Simpson%27s_paradox) might be present. 
 
 
 ## Principal Compontent Analysis
 
-Firstly let's calculate prinipal components using standarized data. 
+Dealing with high dimentional data might be challenging and can lead to several problems. However in most cases it is possible to reduce the number of dimentions retaining most of the information stored in the data. One of the most widely used method that can allow us to do so is Principal Component Analysis. So what we basically want to do is to project our data matrix on some reduced-feature space using a linear transformation while restoring as much information as possible. And that is exactly what PCA does!
+
+### How does the math look like?
+
+Let's assume we have data matrix $X$ consisting of $n$ variables and $m$ observations, so $X \in \mathbb{R}^{n \times m}$. We want to find a linear transformation $U$ that transforms $X$ as follows: $$Z = UX, \text{ where } Z \in \mathbb{R}^{d \times m}, U \in \mathbb{R}^{d \times n} \text{ and } d<m.$$ At the same time we want make sure we mimnimize the information loss. We can think of variance-covariance matrix as a representation of information in our data. In terms of our transformed data matrix it can be denoted as $$\Sigma = \frac{1}{N}Z^TZ, \text{ where } \Sigma \in \mathbb{R}^{n\times n}.$$ Keeping that in mind searching for our transformation becomes following optimisation problem: $$\max_{U}\Sigma=\max_U\frac{1}{N}(XU)^T(XU) = \max_U\frac{1}{N}U^TX^TXU=\max_UU^T\Sigma U, \text{ where } U^TU = I.$$Note that we have to add normalization condition to make sure all of the vectors have unit magnitude because otherwise we would not be able to solve this expression as there is no upper boundary. One possible way to solve such problems is **Method of Lagrange Miltipliers**.
+
+Firstly we construct our Lagrange multiplier as following: $$F(U,\lambda)=U^T\Sigma U + \lambda(I-U^TU).$$ 
+
+Then we differentiate it with respect to $U$ and equate to 0 as the differential should equal 0 in extremum $$\frac{dF}{dU}=\Sigma U-\lambda U.$$ 
+
+We can rewrite it as $$\Sigma U=\lambda U.$$ 
+
+The later looks indeed as eigenvectors equation so what we do is perform variance-covariance matrix diagonalization (eigen-decopostion) to obtain eigenvectors and corresponding eigenvalues $$\Sigma = U \Lambda U^{-1}.$$
+
+Then we can sort pairs of eigenvectors with their eigenvalues in descending order and choose top m pairs. In that way we come up with set of m eigenvectors that retain as much part of variance as following ratio: $$\frac{\Sigma_i^m \lambda_i}{\Sigma_i \lambda_i}.$$.
+
+Our U transformation that we are looking for is composed of the chosen eigenvectors $$U = [u_1, ..., u_m].$$
+
+### Back to our analysis
+
+First let's detrmine relevant prinipal components using standarized data. As scree plot would not tell us much, we should probably choose the number of compontents based on eigenvalue rule of thumg. Each of three top components has eigenvalue > 1, i.e. "contains more information than a single variable". 
 
 ```{r, echo = FALSE, warning = FALSE}
 pca <- prcomp(df_num, scale = TRUE)
 ```
-
-
-As scree plot would not tell us much we should choose the number of compontents based on eigenvalue thumb rule. Each of three top components has eigenvalue > 1, i.e. "contains more information than a single variable". 
-
 
 
 ```{r, echo = FALSE}
@@ -190,10 +199,10 @@ rownames(eig.tab) <- paste0("PC",1:8)
 eig.tab[,-1] %>%
   kable()%>%
   kable_styling() %>%
-  row_spec(1:4, bold = T, color = "white", background = "darkred")
+  row_spec(1:3, bold = T, color = "white", background = "darkred")
 ```
 
-As you can see in the table above they account for about 75,6% of data variability - that's fine. However in order to make interpretations of the components easier we are going to incorporate 4 of them in our further analysis. In that way almost 85,5% of the variance will be explained.
+As you can see in the table above they account for about 70,1% of data variability. That is not as much as we expected but it's fine. We droped 5 from 8 variables and still managed to retain over 70% of variability.
 
 Let's have a look now on the PCA loadings so we can think of some resonable interpretations.
 
@@ -215,6 +224,24 @@ pca.lo%>%
   kable_styling(c("striped", "condensed"), full_width = F, position = "float_right")
 
 ```
+
+```{r}
+ncomp<-8
+pca_iris        <- pca
+rawLoadings     <- pca_iris$rotation[,1:ncomp] %*% diag(pca_iris$sdev, ncomp, ncomp)
+rotatedLoadings <- varimax(rawLoadings)$loadings
+invLoadings     <- t(pracma::pinv(rotatedLoadings))
+scores          <- scale(df_num) %*% invLoadings
+```
+
+
+
+
+
+
+
+
+
 
 The most obvious interpretation has definitely PC2. We can think of it as `durability` of a character because the loadings' values by *health points* and *health points regeneration* are large and influence PC in one direction.
 
