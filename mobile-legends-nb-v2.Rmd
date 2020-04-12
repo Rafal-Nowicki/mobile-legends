@@ -42,10 +42,8 @@ The game was getting more and more attention in Poland for a couple of years now
 ```{r, echo = FALSE, message = FALSE}
 results <- gtrends(c("mobile legends", "MOBA"), geo = "PL", time = "2015-01-01 2020-04-04")
 
-res_time <- results$interest_over_time 
-```
+res_time <- results$interest_over_time
 
-```{r, echo = FALSE, message = FALSE}
 res_plot <- ggplot(res_time,aes(x = date, y = hits, col = keyword)) +
   geom_line()+
   scale_color_manual(values=c("darkred", "steelblue"))+
@@ -59,8 +57,7 @@ ggplotly(res_plot, dynamicTicks = TRUE, height = 600, width = 850) %>%
   layout(hovermode = "x")
 ```
 
-
-As stated above there are several types of characters in that game so we will try to label them based on their characteristics. In order to do so we are going to implement Principal Component Analysis to reduce dimentionallity and then a hierarchical algorithm to cluster them. Although the labels are known such the analysis may be helpful for maintaining characters' skillsets in a balance way.
+As stated above there are several types of characters in that game so we will try to label them based on their characteristics. In order to do so we are going to implement Principal Component Analysis to reduce dimentionallity and then a hierarchical algorithm to cluster them. Although the labels are known as such this analysis may be helpful for maintaining characters' skillsets in a balance way.
 
 ## Data 
 
@@ -74,7 +71,7 @@ The upper command returns value `TRUE`. That's nice - we are allowed to scrape t
 
 Let's have a look on how our data looks like. In the table below you can find all characters in alphabetical order. 
 
-One important remark is although the list below present all playable characters right now we will consider it as a sample since the characters set is being constantly updated with new characters - in that way statistical inference can be justified.
+One important remark is although the list below present all playable characters right now we will consider it sample since the characters set is being constantly updated with new characters - in that way statistical inference can be justified.
 
 ```{r, echo = FALSE}
 load("scraped_skills_data.Rda")
@@ -94,7 +91,7 @@ kable(df, col.names = Hmisc::label(df)) %>%
   kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
 ```
 
-One important thing we should be interested in is the variability of champions characteristics. Below you can see the coefficient of variation (in %).
+One important thing we should be interested in is the variability of champions characteristics becasue if there is no variability at all or just a little even the most sophisticated analysis would be redundant. Below you can see the coefficient of variation (in %).
 
 ```{r, echo = F}
 cv <- function(x){
@@ -108,8 +105,7 @@ df %>%
   kable_styling(font_size = 12)
 ```
 
-The variabiliy of *mana* and *mana regeneration* exeed 60% whereas for *health points regeneration* and *armor* it's about 16% and 26% responsively. We will have to check the data for outliers as those values might be inflated for instance just by a single observation. Rest of the variables vary just a bit (most of them under 10%). The value for magic resistance is constant almost for every character so we will drop that variable in further analysis.
-
+The variabiliy of *mana* and *mana regeneration* exeed 60% - that is exactly what we were looking for! *Health points regeneration* and *armor* vary for about 16% and 26% responsively - not that much but also fine. Although the coefficient for magic resistance is at the level of 16% the value of that abillity is constant almost for every character so anyway we will drop that variable in further analysis. In any case We will have to check the data for outliers as some of those values might be inflated for instance just by a single or two observations. Rest of the variables vary just a bit (most of them under 10%). 
 
 Now let's look for some possible relationships and check distributions of the variables.
 
@@ -125,11 +121,9 @@ p <- ggpairs(data=df, columns=3:11,
 ggplotly(p, height = 800, width = 900)
 ```
 
-
-
 We can see some relationships - f.e. *mana* vs. *mana regeneration* and *health points* vs. *armor* and many more - we will investigate them soon. 
 
-Density functions for variables *movement speed*, *mana* and *mana regenerations* seem to be bimodal - it is clear sign there are some subpopulations in our "sample" so it is reasonable to conduct cluster analysis.
+Density functions for variables *movement speed*, *mana* and *mana regenerations* seem to be bimodal - it is a clear sign there are some subpopulations in our "sample" so it is reasonable to conduct cluster analysis.
 
 There are some outliers - note a champion whose *health point regeneration* ability is about 2 times more powerful than the mean for the sample. We can also see a champion whose *health points* ability and *attack points* are extremly high. For the sake of analysis we will remove both of them from our "sample" so that they will not affect clustering results in a significant way. Let's find out who are those people.
 
@@ -166,7 +160,7 @@ Dealing with high dimentional data might be challenging and can lead to several 
 
 ### How does the math look like?
 
-Let's assume we have data matrix $X$ consisting of $n$ variables and $m$ observations, so $X \in \mathbb{R}^{n \times m}$. We want to find a linear transformation $U$ that transforms $X$ as follows: $$Z = UX, \text{ where } Z \in \mathbb{R}^{d \times m}, U \in \mathbb{R}^{d \times n} \text{ and } d<m.$$ At the same time we want make sure we mimnimize the information loss. We can think of variance-covariance matrix as a representation of information in our data. In terms of our transformed data matrix it can be denoted as $$\Sigma = \frac{1}{N}Z^TZ, \text{ where } \Sigma \in \mathbb{R}^{n\times n}.$$ Keeping that in mind searching for our transformation becomes following optimisation problem: $$\max_{U}\Sigma=\max_U\frac{1}{N}(XU)^T(XU) = \max_U\frac{1}{N}U^TX^TXU=\max_UU^T\Sigma U, \text{ where } U^TU = I.$$Note that we have to add normalization condition to make sure all of the vectors have unit magnitude because otherwise we would not be able to solve this expression as there is no upper boundary. One possible way to solve such problems is **Method of Lagrange Miltipliers**.
+Let's assume we have data matrix $X$ consisting of $n$ variables and $m$ observations, so $X \in \mathbb{R}^{n \times m}$. We want to find a linear transformation $U$ that transforms $X$ as follows: $$Z = UX, \text{ where } Z \in \mathbb{R}^{d \times m}, U \in \mathbb{R}^{d \times n} \text{ and } d<m.$$ At the same time we want make sure we mimnimize the information loss. We can think of variance-covariance matrix as a representation of information in our data. In terms of our transformed data matrix it can be denoted as $$\Sigma = \frac{1}{N}Z^TZ, \text{ where } \Sigma \in \mathbb{R}^{n\times n}.$$ Keeping that in mind searching for our transformation becomes following optimisation problem: $$\max_{U}\Sigma=\max_U\frac{1}{N}(XU)^T(XU) = \max_U\frac{1}{N}U^TX^TXU=\max_UU^T\Sigma U, \text{ where } U^TU = I.$$Note that we have to add normalization condition to make sure all of the vectors have unit magnitude because otherwise we would not be able to solve this expression as there is no upper boundary. One possible way to solve such problems is **Method of Lagrange Multipliers**.
 
 Firstly we construct our Lagrange multiplier as following: $$F(U,\lambda)=U^T\Sigma U + \lambda(I-U^TU).$$ 
 
@@ -180,16 +174,14 @@ Then we can sort pairs of eigenvectors with their eigenvalues in descending orde
 
 Our U transformation that we are looking for is composed of the chosen eigenvectors $$U = [u_1, ..., u_m].$$
 
+
 ### Back to our analysis
 
-First let's detrmine relevant prinipal components using standarized data. As scree plot would not tell us much, we should probably choose the number of compontents based on eigenvalue rule of thumg. Each of three top components has eigenvalue > 1, i.e. "contains more information than a single variable". 
+First let's detrmine relevant prinipal components using standarized data. As scree plot would not tell us much, we should probably choose the number of compontents based on eigenvalue rule of thumb. Each of three top components has eigenvalue bigger than 1, i.e. "contains more information than a single variable". 
 
 ```{r, echo = FALSE, warning = FALSE}
 pca <- prcomp(df_num, scale = TRUE)
-```
 
-
-```{r, echo = FALSE}
 eig.tab <- data.frame(rownames(get_eigenvalue(pca)), round(get_eigenvalue(pca),2))
 
 colnames(eig.tab) <- c("PCA", "Eigenvalue", "Variance percent", "Cumulative variance percent")
@@ -197,17 +189,17 @@ colnames(eig.tab) <- c("PCA", "Eigenvalue", "Variance percent", "Cumulative vari
 rownames(eig.tab) <- paste0("PC",1:8)
   
 eig.tab[,-1] %>%
-  kable()%>%
+  kable() %>%
   kable_styling() %>%
   row_spec(1:3, bold = T, color = "white", background = "darkred")
 ```
 
-As you can see in the table above they account for about 70,1% of data variability. That is not as much as we expected but it's fine. We droped 5 from 8 variables and still managed to retain over 70% of variability.
+As you can see in the table above they account for about 70,1% of data variability. That is not as much as we expected but it's fine. We droped 5 from 8 variables and still managed to retain over 70% of variance.
 
 Let's have a look now on the PCA loadings so we can think of some resonable interpretations.
 
 ```{r, echo = FALSE}
-pca.lo <- data.frame(rownames(pca$rotation), round(pca$rotation,3))
+pca.lo <- data.frame(rownames(pca$rotation), round(pca$rotation,2))
 colnames(pca.lo)[1] <- "Variable"
 
 pca.lo%>%
@@ -220,73 +212,120 @@ pca.lo%>%
     Variable, color = "white", bold = T,
     background = spec_color(1:8, end = 0.9, option = "C", direction = -1)
   )) %>%
-  kable(escape = F, align = "c") %>%
+  kable(escape = F, align = "c", caption = "Original loadings") %>%
   kable_styling(c("striped", "condensed"), full_width = F, position = "float_right")
 
-```
 
-```{r}
-ncomp<-8
-pca_iris        <- pca
-rawLoadings     <- pca_iris$rotation[,1:ncomp] %*% diag(pca_iris$sdev, ncomp, ncomp)
+
+ncomp<-3
+
+rawLoadings     <- pca$rotation[,1:ncomp] %*% diag(pca$sdev, ncomp, ncomp)
 rotatedLoadings <- varimax(rawLoadings)$loadings
 invLoadings     <- t(pracma::pinv(rotatedLoadings))
 scores          <- scale(df_num) %*% invLoadings
+colnames(scores) <- c("PC1", "PC2", "PC3")
+
+pca.rot <- rotatedLoadings[1:8,1:3]
+
+
+pca.lo.rot <- data.frame(rownames(pca.rot), round(pca.rot,2))
+colnames(pca.lo.rot)[1:4] <- c("Variable", "PC1", "PC2", "PC3")
+
+pca.lo.rot%>%
+  mutate_if(is.numeric, function(x) {
+    cell_spec(x, bold = T, 
+              color = spec_color(x, end = 0.5),
+              font_size = spec_font_size(abs(x)))
+  })%>%
+  mutate(Variable = cell_spec(
+    Variable, color = "white", bold = T,
+    background = spec_color(1:8, end = 0.9, option = "C", direction = -1)
+  )) %>%
+  kable(escape = F, align = "c", caption = "Rotated loadings") %>%
+  kable_styling(c("striped", "condensed"), full_width = F, position = "float_right")
 ```
 
+As it is hard to interpret the Principal Components in that framework we may want to rotate the whole system to obtain more intuitive interpretations. For that purpose we take 3 top Principal Compontent and use orthogonal **VARIMAX** roation. We do not change cooridanate system - we roate the orthogonal basis to allign with those coordinates. In that way we assure that squared correlation between variables and factors will be maximized. On the right you can see two tables with loadings before and after rotation responisvely.
 
+The most obvious interpretation has definitely PC2. The loading on `mana` and `mana regeneration` are very high so the underlying force here is `magic`.
 
+PC1 has relatively high loadings (in absolute values) on `health points regeneration` and `armor` so we would lean towards some kind of `durability` interpretation.
 
+PC3 is driven mostly by `attack points` and `attack speed` so one can interpret it as `readiness to fight`.
 
+Now let's check whether it is possible to distinguish some clusters just by looking at the rotaed score plots. We can clearly see two clusters or maybe three... Next section will help us to understand what is going on.
 
+```{r, echo = FALSE, warning= FALSE, message = FALSE}
+q <- ggpairs(data=as.data.frame(scores), columns=1:3, 
+             lower = list(continuous = wrap("points",alpha = 0.5, size=0.5, col = "steelblue")),
+  diag = list(continuous = wrap("densityDiag", fill = "darkred", alpha = 0.8)))+
+  theme_classic()
 
-
-
-
-The most obvious interpretation has definitely PC2. We can think of it as `durability` of a character because the loadings' values by *health points* and *health points regeneration* are large and influence PC in one direction.
-
-Next quite resonable interpretation would be `physical strength` for PC4 because of extend of *attack points* influence and also becasue of the opposite sign of *armor* variable.
-
-`Readiness to fight` would be the label for PC3. Since both signs of loadings by variable *mana* and *mana regeneration* are strongly negative, we would expect all magical champions to have very low value of PC3. 
-
-As we cannot came up with anything better for PC1 let's call it for now `playability` and later on maybe we will be able to review that issue.
-
-If we would include PC5 we would probably call it `defensive capability`. For more precise labeling we should talk to some gamers with experience and knowledge about the game - maybe someday i will upload it with my recent dicoveries :)
-
-```{r, echo = FALSE}
-#pca3d(pca, biplot = TRUE)
-#snapshotPCA3d(file="first_plot.png")
-#![first_plot.png](first_plot.png)
+ggplotly(q, height = 600, width = 800)
 ```
-
-
-```{r, include=FALSE, echo=FALSE}
-#Obtaining pca scores for our observation
-df_pca <- get_pca_ind(pca)
-df_pca <- df_pca$coord[, 1:4]
-```
-
 
 ## Clusters
 
-Now as we reduced dimentionality we can proceed to the most exciting part of our analysis - clusters distinguishment. To do so we will implement hierarchical algorithm. First let's start with computing distances between observation. For that purpose we will use first and second order of Minkowski metrics, i.e. Mannhatan and Euclidean distances responsively.
+Now as we reduced dimentionality we can proceed to the most exciting part of our analysis - clusters distinguishment. In that part we will implement hierarchical algorithm. 
 
+First let's start with computing distances between observation. For that purpose we will use second order of Minkowski metrics, i.e. Euclidean distance. Below you can see vizualisation of discussed distance matrix.
 
-```{r, echo =FALSE}
-rownames(df_pca)  <- rownames(df_num)
-distance.e <- get_dist(df_pca, method = "euclidean")
-distance.m <- get_dist(df_pca, method = "manhattan")
+```{r, echo =FALSE, fig.align= "center", fig.width= 10}
+
+distance.e <- get_dist(scores, method = "euclidean")
 
 dist.e.plot <- fviz_dist(distance.e, gradient = list(low = "steelblue", mid = "white", high = "darkred"), lab_size = 4)
 
-dist.m.plot <- fviz_dist(distance.m, gradient = list(low = "steelblue", mid = "white", high = "darkred"), lab_size = 4)
-
-grid.arrange(dist.e.plot, dist.m.plot)
-
+plot(dist.e.plot)
 ```
 
+Now we ...
+UNDER 
+CONSTRUCTION
+KEEP
+WAITNING
+
+
+```{r, echo =FALSE, fig.align= "center", fig.width= 10}
+hc <- hclust(distance.e, method = "ward.D2")
+
+dend <- scores %>% dist("euclidean") %>% 
+   hclust %>% as.dendrogram %>%  set("branches_k_color", k=5) %>% set("branches_lwd", 1.2) %>%
+   set("labels_colors") %>% set("labels_cex", c(.6,.7)) %>% 
+   set("leaves_pch", 19) %>% set("leaves_col", c("blue", "red"))
+
+plot(dend)
+```
 
 
 ```{r}
-#hc <- hclust(d.e, method = "ward.D2")
+fviz_nbclust(scores, FUN = hcut, method = "silhouette", hc_method = "ward.D2")
+fviz_nbclust(scores, FUN = hcut, method = "silhouette", hc_method = "single")
+fviz_nbclust(scores, FUN = hcut, method = "silhouette", hc_method = "complete")
+fviz_nbclust(scores, FUN = hcut, method = "silhouette", hc_method = "average")
 ```
+
+
+
+```{r, echo =FALSE, fig.align= "center", fig.width= 10}
+ggd1 <- as.ggdend(dend)
+
+ggplot(ggd1, labels = F) + 
+  scale_y_reverse(expand = c(0.2, 0)) +
+  coord_polar(theta="x")
+```
+
+```{r, warning=F, message = F, echo = F}
+CLUSTER <- as.factor(cutree(dend, 7))
+
+
+df_class <- cbind(df_num,CLUSTER)
+
+s <- ggpairs(data=df_class, columns=2:9, mapping = aes(color = CLUSTER),
+             lower = list(continuous = wrap("points",alpha = 0.5, size=0.5)),
+  diag = list(continuous = wrap("densityDiag", alpha = 0.8)))+
+  theme_classic()
+
+ggplotly(s, height = 1400, width = 1000)
+```
+
