@@ -1,0 +1,413 @@
+---
+title: "Mobile legend analysis"
+author: "Rafal Nowicki"
+date: "5 04 2020"
+output: html_document
+---
+<script>
+   $(document).ready(function() {
+     $head = $('#header');
+     $head.prepend('<img src=\"logo.png\" style=\"float: right;width: 250px;\"/>')
+   });
+</script>
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(robotstxt)
+library(tidyverse)
+library(ggcorrplot)
+library(magrittr)
+library(knitr)
+library(ggcorrplot)
+library(see)
+library(latex2exp)
+library(car)
+library(RColorBrewer) 
+library(gtrendsR)
+library(GGally)
+library(plotly)
+library(kableExtra)
+library(factoextra)
+library(pracma)
+library(pca3d)
+library(Hmisc)
+library(ggdendro)
+library(dendextend)
+library(circlize)
+library(gridExtra)
+library(ggradar)
+library(scales)
+library(tibble)
+library(yarrr)
+```
+
+## Preliminary
+
+Mobile Legends: Bang Bang is a MOBA game (Multiplayer online battle arena) for mobile devices with Android and iOS developed by Shanghai Moonton. The game was originally released in Asia on 11th of June 2016.
+
+In the game there are 2 opposing teams consisting of 5 players each. Players choose a character they will play with before game starts. As for now there are around 90 champions (character) to choose from. Each character is unique and may be used for different purposes depending on their skills and abillities. In that way one can distinguish mages, assasins, fighters, supports, tanks and marksmen. Main task is to destroy enemies' defence towers resulting in concquering their base.
+
+The game was getting more and more attention in Poland for a couple of years now. The graph below presents interest over time for google query "Mobile Legends" and "MOBA" in Poland. As you can see around 2017 there was a huge increase in popularity of Mobile Legends while interest in MOBA games in general was falling down gradually in past 5 years. However in March and April 2020 they experienced a rapid renaissance. We can probably associate it at least in part with lockdown caused by COVID-19 outbreak.
+
+
+```{r, echo = FALSE, message = FALSE}
+results <- gtrends(c("mobile legends", "MOBA"), geo = "PL", time = "2015-01-01 2020-04-04")
+
+res_time <- results$interest_over_time
+
+res_plot <- ggplot(res_time,aes(x = date, y = hits, col = keyword)) +
+  geom_line()+
+  scale_color_manual(values=c("darkred", "steelblue"))+
+  ggtitle("Interest in 'Mobile Legends' and 'MOBA' in Google (Poland)") +
+  theme_classic()+
+  theme(legend.position = "none")
+ 
+
+ggplotly(res_plot, dynamicTicks = TRUE, height = 600, width = 850) %>%
+  rangeslider() %>%
+  layout(hovermode = "x")
+```
+
+As stated above there are several types of characters in that game so we will try to check whether it is reflected in the data or the characters are labelled artificially. In order to do so we are going to implement Principal Component Analysis to reduce dimentionallity and then hierarchical algorithm to cluster the characters. Although the labels are known as such this analysis may be helpful for:
+
+a) choosing an alternative character if the one you want to play with is unavailable
+
+b) discovering underlying forces generating skills
+
+c) maintaining characters skillsets in a balance way, 
+
+## Data 
+
+First we have to collect the data. As there is no official site with the data on champions characteristics we will scrape it from [mobile league wiki site](https://mobile-legends.fandom.com/wiki/Mobile_Legends_Wiki). Let's check *robot.txt* file before we start.
+
+```{r, warning=F, eval = FALSE, echo = TRUE}
+paths_allowed("https://mobile-legends.fandom.com/wiki/Mobile_Legends_Wiki")
+```
+
+The upper command returns value `TRUE`. That's nice - we are allowed to scrape their data. For that purpose we will combine `rvest` package and [selector gadget widget](https://selectorgadget.com/). Whole scraping/wrangling code is provided in a speparate Rmd file in GitHub repository.
+
+Let's have a look on how our data looks like. In the table below you can find all characters in alphabetical order. 
+
+One important remark is although the list below present all playable characters right now we will consider it sample since the characters set is being constantly updated with new characters - in that way statistical inference can be justified.
+
+```{r, echo = FALSE}
+load("scraped_skills_data.Rda")
+
+df %<>% mutate_at(2, as.character)
+
+df[17,2] <- "Change"
+
+var.labels = c(Id = "Id", HERO="Hero", MV_SPD="Movement speed",
+               MGC_DFN = "Magic Resistance", MANA = "Mana",
+               HP_RGN = "HP Regen Rate", P_ATK = "Physical Attack",
+               P_DFN = "Armor", HP = "Health points", 
+               ATK_SPD = "Attack speed", MANA_RGN = "Mana regen rate",
+               ROLE = "Role")
+
+Hmisc::label(df) = as.list(var.labels[match(names(df), names(var.labels))])
+
+kable(df, col.names = Hmisc::label(df)) %>%
+  kable_styling(fixed_thead = T, font_size = 10.75) %>%
+  kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"))
+```
+
+One important thing we should be interested in is the variability of champions characteristics becasue if there is no variability at all or just a little even the most sophisticated analysis would be redundant. Below you can see the coefficient of variation (in %).
+
+```{r, echo = F}
+cv <- function(x){
+  round((sd(x, na.rm = TRUE)/mean(x, na.rm  = TRUE))*100,2)
+}
+
+df %>%
+  mutate(Id = as.character(Id))%>%
+  summarize_if(is.numeric, cv) %>%
+  kable(col.names = Hmisc::label(df)[-c(1,2,12,13)]) %>%
+  kable_styling(font_size = 12)
+```
+
+The variabiliy of *mana* and *mana regeneration* exeed 60% - that is exactly what we were looking for! *Health points regeneration* and *armor* vary for about 16% and 26% responsively - not that much but also fine. Although the coefficient for magic resistance is at the level of 16% the value of that abillity is constant almost for every character so anyway we will drop that variable in further analysis. In any case we will have to check the data for outliers as some of those values might be inflated for instance just by a single or two observations. Rest of the variables vary just a bit (most of them under 10%). 
+
+Now let's look on some possible relationships and check distributions of the variables.
+
+```{r, message= F, warning=F, echo = F}
+df %<>% mutate(HP = HP/1000)
+  
+p <- ggpairs(data=df, columns=3:11, 
+             lower = list(continuous = wrap("points",alpha = 0.5, size=0.5, col = "steelblue")),
+  diag = list(continuous = wrap("densityDiag", fill = "darkred", alpha = 0.8)))+
+  theme_classic()
+
+ggplotly(p, height = 800, width = 900)
+```
+
+We can see some relationships - f.e. *mana* vs. *mana regeneration* and *health points* vs. *armor* and many more - we will investigate them soon. 
+
+Density functions for variables *movement speed*, *mana* and *mana regenerations* seem to be bimodal - it is a clear sign there are some subpopulations in our "sample" so it is reasonable to proceed with cluster analysis.
+
+There are some outliers - note a champion whose *health point regeneration* ability is about 2 times more powerful than the mean for the sample. We can also see a champion whose *health points* ability and *attack points* are extremly high. For the sake of analysis we will remove both of them from our "sample" so that they will not affect clustering results in a significant way. Let's find out who are those people.
+
+```{r, echo = FALSE }
+df[c(which.max(df$HP_RGN), which.max(df$HP)), ] %>%
+  kable(col.names = Hmisc::label(df)) %>%
+  kable_styling(font_size = 11)
+```
+
+The last thing we can do is to check the correlations and their significance - just to have general view since [Simson paradox](https://en.wikipedia.org/wiki/Simpson%27s_paradox) might be present. 
+
+```{r, echo = FALSE, out.width= "65%", out.extra='style="float:right; padding:10px"'}
+df_num <- df[,-c(1,2,4)] %>%
+  as.data.frame()
+
+rownames(df_num) <- df$HERO
+
+df_num<- df_num[-c(which.max(df$HP_RGN), which.max(df$HP)), ] %>%
+  drop_na()
+
+correlations <- cor(df_num[,-9])
+p_mat <- cor_pmat(df_num[,-9])
+
+ggcorrplot(correlations, hc.order = TRUE, type = "lower", lab = TRUE, digits = 1,
+           p.mat = p_mat, ggtheme = ggplot2::theme_classic, sig.level = 0.001,
+           colors = c("steelblue", "white", "darkred"),
+           title = "Pearson's correlation matrix", legend.title = latex2exp :: TeX("$\\rho$ value"),)
+```
+
+## Principal Compontent Analysis
+
+Dealing with high dimentional data might be challenging and can lead to several problems. However in most cases it is possible to reduce the number of dimentions retaining most of the information stored in the data. One of the most widely used method that can allow us to do so is Principal Component Analysis. So what we basically want to do is to project our data matrix on some reduced-feature space using a linear transformation while restoring as much information as possible. And that is exactly what PCA does!
+
+### How does the math look like?
+
+Let's assume we have data matrix $X$ consisting of $n$ variables and $m$ observations, so $X \in \mathbb{R}^{n \times m}$. We want to find a linear transformation $U$ that transforms $X$ as follows: $$Z = UX, \text{ where } Z \in \mathbb{R}^{d \times m}, U \in \mathbb{R}^{d \times n} \text{ and } d<m.$$ At the same time we want make sure we mimnimize the information loss. We can think of variance-covariance matrix as a representation of information in our data. In terms of our transformed data matrix it can be denoted as $$\Sigma = \frac{1}{N}Z^TZ, \text{ where } \Sigma \in \mathbb{R}^{n\times n}.$$ Keeping that in mind searching for our transformation becomes following optimisation problem: $$\max_{U}\Sigma=\max_U\frac{1}{N}(XU)^T(XU) = \max_U\frac{1}{N}U^TX^TXU=\max_UU^T\Sigma U, \text{ where } U^TU = I.$$Note that we have to add normalization condition to make sure all of the vectors have unit magnitude because otherwise we would not be able to solve this expression as there is no upper bound. One possible way to solve such problems is **Method of Lagrange Multipliers**.
+
+Firstly we construct our Lagrange multiplier as following: $$F(U,\lambda)=U^T\Sigma U + \lambda(I-U^TU).$$ 
+
+Then we differentiate it with respect to $U$ and equate to 0 as the differential should equal 0 in extremum $$\frac{dF}{dU}=\Sigma U-\lambda U.$$ 
+
+We can rewrite it as $$\Sigma U=\lambda U.$$ 
+
+The later looks indeed as eigenvectors equation so what we do is perform variance-covariance matrix diagonalization (eigendecopostion) to obtain eigenvectors and corresponding eigenvalues $$\Sigma = U \Lambda U^{-1}.$$
+
+Then we can sort pairs of eigenvectors with their eigenvalues in descending order and choose top m pairs. In that way we come up with set of m eigenvectors that retain as much part of variance as following ratio: $$\frac{\Sigma_i^m \lambda_i}{\Sigma_i \lambda_i}.$$.
+
+Our U transformation that we are looking for is composed of the selected eigenvectors $$U = [u_1, ..., u_m].$$
+
+
+### Back to our analysis
+
+First let's detrmine relevant prinipal components using standarized data. As scree plot would not tell us much, we should probably choose the number of compontents based on eigenvalue rule of thumb. Each of three top components has eigenvalue bigger than 1, i.e. "contains more information than a single variable". 
+
+```{r, echo = FALSE, warning = FALSE}
+pca <- prcomp(df_num[,-9], scale = TRUE)
+
+eig.tab <- data.frame(rownames(get_eigenvalue(pca)), round(get_eigenvalue(pca),2))
+
+colnames(eig.tab) <- c("PCA", "Eigenvalue", "Variance percent", "Cumulative variance percent")
+
+rownames(eig.tab) <- paste0("PC",1:8)
+  
+eig.tab[,-1] %>%
+  kable() %>%
+  kable_styling() %>%
+  row_spec(1:3, bold = T, color = "white", background = "darkred")
+```
+
+As you can see in the table above they account for about 70,1% of data variability. That is not as much as we expected but it's fine. We droped 5 from 8 variables and still managed to retain over 70% of variance.
+
+Let's have a look now on the PCA loadings so we can think of some resonable interpretations.
+
+```{r, echo = FALSE}
+pca.lo <- data.frame(rownames(pca$rotation), round(pca$rotation,2))
+colnames(pca.lo)[1] <- "Variable"
+
+pca.lo%>%
+  mutate_if(is.numeric, function(x) {
+    cell_spec(x, bold = T, 
+              color = spec_color(x, end = 0.5),
+              font_size = spec_font_size(abs(x)))
+  })%>%
+  mutate(Variable = cell_spec(
+    Variable, color = "white", bold = T,
+    background = spec_color(1:8, end = 0.9, option = "C", direction = -1)
+  )) %>%
+  kable(escape = F, align = "c", caption = "Original loadings") %>%
+  kable_styling(c("striped", "condensed"), full_width = F, position = "float_right")
+
+
+ncomp<-3
+
+rawLoadings     <- pca$rotation[,1:ncomp] %*% diag(pca$sdev, ncomp, ncomp)
+rotatedLoadings <- varimax(rawLoadings)$loadings
+invLoadings     <- t(pracma::pinv(rotatedLoadings))
+scores          <- scale(df_num[,-9]) %*% invLoadings
+colnames(scores) <- c("PC1", "PC2", "PC3")
+
+pca.rot <- rotatedLoadings[1:8,1:3]
+
+
+pca.lo.rot <- data.frame(rownames(pca.rot), round(pca.rot,2))
+colnames(pca.lo.rot)[1:4] <- c("Variable", "PC1", "PC2", "PC3")
+
+pca.lo.rot%>%
+  mutate_if(is.numeric, function(x) {
+    cell_spec(x, bold = T, 
+              color = spec_color(x, end = 0.5),
+              font_size = spec_font_size(abs(x)))
+  })%>%
+  mutate(Variable = cell_spec(
+    Variable, color = "white", bold = T,
+    background = spec_color(1:8, end = 0.9, option = "C", direction = -1)
+  )) %>%
+  kable(escape = F, align = "c", caption = "Rotated loadings") %>%
+  kable_styling(c("striped", "condensed"), full_width = F, position = "float_right")
+```
+
+As it is hard to interpret the Principal Components in that framework we may want to rotate the whole system to obtain more intuitive interpretations. For that purpose we take 3 top Principal Compontent and use orthogonal **VARIMAX** roation. We do not change cooridanate system - we roate the orthogonal basis to allign with those coordinates. In that way we assure that squared correlation between variables and factors will be maximized. On the right you can see two tables with loadings before and after rotation responisvely.
+
+The most obvious interpretation has definitely PC2. The loading on `mana` and `mana regeneration` are very high so the underlying force here is `magic`.
+
+PC1 has relatively high loadings (in absolute values) on `health points regeneration` and `armor` so we would lean towards some kind of `durability` interpretation.
+
+PC3 is driven mostly by `attack points` and `attack speed` so one can interpret it as `readiness to fight`.
+
+Now let's check whether it is possible to distinguish some clusters just by looking at the rotated score plots. We can clearly see two clusters or maybe three... Next section will help us to understand what is going on.
+
+```{r, echo = FALSE, warning= FALSE, message = FALSE}
+q <- ggpairs(data=as.data.frame(scores), columns=1:3, 
+             lower = list(continuous = wrap("points",alpha = 0.5, size=0.5, col = "steelblue")),
+  diag = list(continuous = wrap("densityDiag", fill = "darkred", alpha = 0.8)))+
+  theme_classic()
+
+ggplotly(q, height = 600, width = 800)
+```
+
+## Clusters
+
+Now as we reduced dimentionality we can proceed to the most exciting part of our analysis - clusters distinguishment. In that part we will implement hierarchical algorithm to see wheter there is an underlying data structer to discover.
+
+First let's start with computing distances between observation. For that purpose we will use second order of Minkowski metric, i.e. Euclidean distance. Below you can see vizualisation of discussed distance matrix.
+
+```{r, echo =FALSE, fig.align= "center", fig.width= 10}
+distance.e <- get_dist(scores, method = "euclidean")
+
+dist.e.plot <- fviz_dist(distance.e, gradient = list(low = "steelblue", mid = "white", high = "darkred"), lab_size = 4)
+
+plot(dist.e.plot)
+```
+
+There are two types of hierarchical clustering methods in general. In the first one at the beginning every data point is a separate cluster, then we connect the closest ones with one another based on chosen distance metric and criteria (see below) till all data points are in one cluster. Because of that fact we often refer to this approach as agglomerative or bottom-up clustering. In the second type it is the opposite - at the beginning all of the data points are in one, big cluster then we separate them till every cluster consists of just one data point. This approach is called devisive or top-down clustering. 
+
+Another issue is the choice of data points we are going to calculate the distance between. Also in this case there are several possibilities. The most widely used ones are single linkage, complete linkage, average linkage and Ward's method. In single linkage approach we connenct the to-be-connected sets based on the data points that are closest to each other. Complete linkage works in the opposite way - we connect the data points based on the maximal distance between the sets. Average method is a compromise between these two approaches. Ward's method is a bit different than the previous ones. Using that method we create clusters for which the variance witihin the groups is minimized.
+
+**In our analysis we will use the agglomerative algorithm with euclidean metrics and Ward's method of linking.**
+
+One huge advantage of hierarchical clustering methods over for instance k-means clustering algorithm is that we can get a valuable insight of the data structure by looking at the so called dendrogram. Domain knowledge is very helpful at that moment as it might get way easier to work out the number of clusters and their possible names. Below you can see a dendrogram based on methodology we chose presenting 4 different clusters.
+
+
+```{r, echo =FALSE,message = FALSE, fig.align= "center", fig.width= 12, fig.height= 12}
+dend <- scores %>% 
+  dist("euclidean") %>% 
+  hclust(method = "ward.D2") %>% 
+  as.dendrogram %>%
+  set("branches_k_color", k=4) %>%
+  set("branches_lwd", 1.2) %>%
+  set("labels_colors") %>%
+  set("labels_cex", c(.6,.7)) %>% 
+  set("leaves_pch", 19) %>%
+  set("leaves_col", c("steelblue", "darkred"))
+
+circlize_dendrogram(dend, labels_track_height = NA, dend_track_height = .3) 
+```
+
+Although the choice of the threshold, (i.e. how many cluster we want to distinguish) is arbitrary we can look at some metrics that can reflect something similar to goodness of fit in clustering framework. For instance we can compute so called silhoutte width for every observation to see how similar that observation is with the cluster it was assigned to. If we average out all the computed silhoutte widths for different number of clusters and plot it we might get a nice insight on what is going on in the data.
+
+```{r, echo = FALSE, fig.align= "center", fig.width= 10}
+c1 <- fviz_nbclust(scores, FUN = hcut,diss = distance.e, method = "silhouette", hc_method = "ward.D2") +labs(title= "Ward method")
+c2 <- fviz_nbclust(scores, FUN = hcut,diss = distance.e, method = "silhouette", hc_method = "single")+labs(title= "Single linkage method")
+c3 <- fviz_nbclust(scores, FUN = hcut,diss = distance.e, method = "silhouette", hc_method = "complete")+labs(title= "Complete linkage method")
+c4 <- fviz_nbclust(scores, FUN = hcut,diss = distance.e, method = "silhouette", hc_method = "average")+labs(title= "Average linkage method")
+
+grid.arrange(c1,c2,c3,c4,ncol = 2)
+```
+
+As you can see above silhoutte plots for different methods of linking indicate different number of clusters. Plots for complete linkage and average linkage method suggest there are around seven to nine different clusters in our data. On the other hand plot for single linkage approach indicate there are just two distinct groups. Which one should we trust? That's a though question nobody knows answer at first but let's focus on the plot for Ward method. It suggests there are something between 4 and 7 clusters so let's examine the data structure firstly for the most rough division as it is of most interest to us.
+
+```{r, warning=F, message = F, echo = F}
+cluster4 <- as.factor(cutree(dend, 4)) 
+df_class <- cbind(df_num, cluster4)
+
+southpark.cols <- piratepal(palette = "southpark", trans = .2)
+
+
+ggplot <- function(...) ggplot2::ggplot(...) +
+  scale_color_manual(values = as.vector(southpark.cols)) + 
+  scale_fill_manual(values = as.vector(southpark.cols))
+
+unlockBinding("ggplot",parent.env(asNamespace("GGally")))
+assign("ggplot",ggplot,parent.env(asNamespace("GGally")))
+
+
+s <- ggpairs(data=df_class, columns=1:8, mapping = aes(colour = cluster4),
+             lower = list(continuous = wrap("points",alpha = 0.5, size=0.5)),
+             upper = list(continuous = wrap("cor", size = 3.25)),
+              diag = list(continuous = wrap("densityDiag", alpha = 0.6)))+
+       theme_classic()
+
+ggplotly(s, height = 800, width = 900)
+```
+
+<div style= "float:right;position: relative;">
+```{r, echo = FALSE, message = FALSE}
+to_perc <- function(x, na.rm = FALSE) (x/max(x))
+
+df_class %>% 
+  group_by(cluster4)%>%
+  summarise_if(is.numeric, mean) %>%
+  mutate_if(is.numeric,to_perc) %>%
+  ggradar(base.size = 1, plot.legend = FALSE,group.point.size = 2, group.line.width = 1.25) +
+  scale_color_manual(values=as.vector(southpark.cols))
+```
+</div>
+
+It seems quite reasonable to distinguish four clusters. On the right hand side you can see a radar plot with skills averages of characters within clusters rescaled via division with highest value. What we can observe:
+
+Blue cluster is the most durable one - lots of `points of defense`, well developed `health points regeneration` and also highly unmagical. There are probably tanks over there.
+
+On the other hand the red one is characterized with strong magical skills like `mana` or `mana regeneration` and at the same time is very weak physically. Those are most likely mages and/or other champions with some magical skills.
+
+Third cluster - the yellow one - is the most balanced one and but with most `points of attack`. Here we have characters we could probably fight with on the front line.
+
+The last group - green one - is the most peculiar one. Those are the most unmagical characters with quite a lot of `attack speed` and `attack points`. Here we have somekind of assasins or something similar. 
+
+Such division in four clusters is quite satisfying so we are going to stay with it as more clusters do not give much more insight about the data structure. There are some subgroups for instance in the green cluster but we don't find it that interesting to show it here.
+
+Of course we actually knew the characters labels the whole time but the purpose of the study was to see what the data says about the different groups of characters and not to classify them upon their characteristics. Anyway it might be interesting to see of which type of characters do the clusters cosist. Below you can see a plot answering that question.
+
+<div style= "float:right;position: relative;">
+```{r, echo = FALSE}
+ggplot <- function(...) ggplot2::ggplot(...) +
+  scale_color_manual(values = as.vector(southpark.cols)) + 
+  scale_fill_manual(values = as.vector(southpark.cols))
+
+df_class %>%
+  ggplot(aes(x = cluster4, y = ..count.., fill = ROLE))+
+  geom_bar(position = "stack") +
+  xlab("")+
+  theme_classic()
+```
+</div>
+
+
+As we can see the cluster we attributed durability consists mainly of tanks characters and some (probably) strong fighters. The magical cluster we distinguished (cluster 3) captures all of mages and all of support characters. Probably support champions' abilities are also quite "magical". Cluster 2 and 4 capture most of fighter and assasins as we thought earlier, so those are characters you would play with to fight on the front line or by blitz attack responsively.
+
+## Conclusions
+
+As we discovered there are 3 underlying forces driving the characters skills: `durability`, `magic` and `readiness to fight`.
+
+There are 4 clusters of characters you can play with. Magical ones, durable ones and two suitable for fight - either normal or sneaky one.
+
+Different types of characters might be useful for the same purpose.
+
+There are some outliers in the data - either they are mistakes, some weird unbalanced characters or maybe there is just something about them we don't know ( ͡° ͜ʖ ͡°).
+
+
+
