@@ -28,6 +28,9 @@ library(Hmisc)
 library(ggdendro)
 library(dendextend)
 library(gridExtra)
+library(ggradar)
+library(scales)
+library(tibble)
 ```
 
 ## Preliminary
@@ -75,16 +78,16 @@ One important remark is although the list below present all playable characters 
 
 ```{r, echo = FALSE}
 load("scraped_skills_data.Rda")
-  
+
 var.labels = c(Id = "Id", HERO="Hero", MV_SPD="Movement speed",
                MGC_DFN = "Magic Resistance", MANA = "Mana",
                HP_RGN = "HP Regen Rate", P_ATK = "Physical Attack",
                P_DFN = "Armor", HP = "Health points", 
                ATK_SPD = "Attack speed", MANA_RGN = "Mana regen rate",
-               ROLE = "Role", SPECIALLY = "Special")
+               ROLE = "Role")
+
 
 Hmisc::label(df) = as.list(var.labels[match(names(df), names(var.labels))])
-
 
 kable(df, col.names = Hmisc::label(df)) %>% 
   kable_styling(fixed_thead = T, font_size = 10.75) %>%
@@ -253,7 +256,7 @@ PC1 has relatively high loadings (in absolute values) on `health points regenera
 
 PC3 is driven mostly by `attack points` and `attack speed` so one can interpret it as `readiness to fight`.
 
-Now let's check whether it is possible to distinguish some clusters just by looking at the rotaed score plots. We can clearly see two clusters or maybe three... Next section will help us to understand what is going on.
+Now let's check whether it is possible to distinguish some clusters just by looking at the rotated score plots. We can clearly see two clusters or maybe three... Next section will help us to understand what is going on.
 
 ```{r, echo = FALSE, warning= FALSE, message = FALSE}
 q <- ggpairs(data=as.data.frame(scores), columns=1:3, 
@@ -266,7 +269,7 @@ ggplotly(q, height = 600, width = 800)
 
 ## Clusters
 
-Now as we reduced dimentionality we can proceed to the most exciting part of our analysis - clusters distinguishment. In that part we will implement hierarchical algorithm. 
+Now as we reduced dimentionality we can proceed to the most exciting part of our analysis - clusters distinguishment. In that part we will implement hierarchical algorithm to see wheter there is an underlying data structer to discover.
 
 First let's start with computing distances between observation. For that purpose we will use second order of Minkowski metrics, i.e. Euclidean distance. Below you can see vizualisation of discussed distance matrix.
 
@@ -279,53 +282,82 @@ dist.e.plot <- fviz_dist(distance.e, gradient = list(low = "steelblue", mid = "w
 plot(dist.e.plot)
 ```
 
-Now we ...
-UNDER 
-CONSTRUCTION
-KEEP
-WAITNING
+There are two types of hierarchical clustering methods in general. In the first one at the beginning every data point is a separate cluster, then we connect the closest ones with one another based on chosen distance metric and criteria (see below) till all data points are in one cluster. Because of that fact we often refer to this approach as agglomerative or bottom-up clustering. In the second type it is the opposite - at the beginning all of the data points are in one, big cluster then we separate them till every cluster consists of just one data point. This approach is called devisive or top-down clustering. 
+
+Another issue is the choice of data points we are going to calculate the distance between. Also in this case there are several possibilities. The most-used ones are single linkage, complete linkage, average linkage and Ward method. In single linkage approach we connenct the to-be-connected sets based on the datapoints that are closest to each other. Complete linkage works in the opposite way - we connect the datapoints based on the maximal distance between the sets. Average method is a compromise between these two approaches (see the picture). Ward's method is a bit different than the previous ones. Using that method we create clusters for which the variance witihin the groups is minimized.
+
+In our analysis we will use the agglomerative algorithm with euclidean metrics and Ward's method of linking.
+
+One huge advantage of hierarchical clustering methods over for instance k-means clustering algorithm is that we can get a valuable insight of the structure of our data by looking on the so called dendrogram. Domain knowledge is very helpful at that point as it might be way easier to work out the number of clusters and their possible names.
 
 
 ```{r, echo =FALSE, fig.align= "center", fig.width= 10}
 hc <- hclust(distance.e, method = "ward.D2")
 
 dend <- scores %>% dist("euclidean") %>% 
-   hclust %>% as.dendrogram %>%  set("branches_k_color", k=5) %>% set("branches_lwd", 1.2) %>%
+   hclust(method = "ward.D2") %>% as.dendrogram %>%  set("branches_k_color", k=5) %>% set("branches_lwd", 1.2) %>%
    set("labels_colors") %>% set("labels_cex", c(.6,.7)) %>% 
    set("leaves_pch", 19) %>% set("leaves_col", c("blue", "red"))
 
 plot(dend)
 ```
 
+Although the choice of the threshold, (i.e. how many cluster we want to distinguish) is arbitrary we can look at some metrics that can reflect something similar to goodness of fit in clustering framework. For instance we can compute a so called silhoutte width for every observation to see how similar that observation is with the cluster it was assigned to. If we average out all the computed silhoutte widths for different number of cluster and plot it we might get nice insight on what is going on in the data structure.
 
-```{r}
-fviz_nbclust(scores, FUN = hcut, method = "silhouette", hc_method = "ward.D2")
-fviz_nbclust(scores, FUN = hcut, method = "silhouette", hc_method = "single")
-fviz_nbclust(scores, FUN = hcut, method = "silhouette", hc_method = "complete")
-fviz_nbclust(scores, FUN = hcut, method = "silhouette", hc_method = "average")
+```{r, echo = FALSE, fig.align= "center", fig.width= 10}
+c1 <- fviz_nbclust(scores, FUN = hcut,diss = distance.e, method = "silhouette", hc_method = "ward.D2") +labs(title= "Ward method")
+c2 <- fviz_nbclust(scores, FUN = hcut,diss = distance.e, method = "silhouette", hc_method = "single")+labs(title= "Single linkage method")
+c3 <- fviz_nbclust(scores, FUN = hcut,diss = distance.e, method = "silhouette", hc_method = "complete")+labs(title= "Complete linkage method")
+c4 <- fviz_nbclust(scores, FUN = hcut,diss = distance.e, method = "silhouette", hc_method = "average")+labs(title= "Average linkage method")
+
+grid.arrange(c1,c2,c3,c4,ncol = 2)
 ```
 
 
+Below you can see four versions of graph discussed above. The first one and the third one suggest there are seven clusters in our sample. The fourth one is quite close to them as it indicates there are eight clusters. Silhoutte plot for single linkage method suggests we should distinc only two clusters. Game knowledge might be very helpful now so could understand that matter better.
 
-```{r, echo =FALSE, fig.align= "center", fig.width= 10}
-ggd1 <- as.ggdend(dend)
-
-ggplot(ggd1, labels = F) + 
-  scale_y_reverse(expand = c(0.2, 0)) +
-  coord_polar(theta="x")
-```
+Let see how does it look like if we choose 2 clusters.
 
 ```{r, warning=F, message = F, echo = F}
-CLUSTER <- as.factor(cutree(dend, 7))
-
+CLUSTER <- as.factor(cutree(dend, 2))
 
 df_class <- cbind(df_num,CLUSTER)
 
-s <- ggpairs(data=df_class, columns=2:9, mapping = aes(color = CLUSTER),
+ggplot <- function(...) ggplot2::ggplot(...) +scale_color_manual(values = c("steelblue", "darkred")) + scale_fill_manual(values = c("steelblue", "darkred"))
+
+unlockBinding("ggplot",parent.env(asNamespace("GGally")))
+assign("ggplot",ggplot,parent.env(asNamespace("GGally")))
+
+s <- ggpairs(data=df_class, columns=2:9, mapping = aes(colour = CLUSTER),
              lower = list(continuous = wrap("points",alpha = 0.5, size=0.5)),
-  diag = list(continuous = wrap("densityDiag", alpha = 0.8)))+
+             upper = list(continuous = wrap("cor", size = 3.25)),
+              diag = list(continuous = wrap("densityDiag", alpha = 0.8)))+
   theme_classic()
 
-ggplotly(s, height = 1400, width = 1000)
+ ggplotly(s, height = 800, width = 900)
 ```
 
+<div style= "float:right;position: relative;">
+```{r, echo = FALSE, message = FALSE}
+to_perc <- function(x, na.rm = FALSE) (x/max(x))
+
+df_class %>% 
+  group_by(CLUSTER)%>%
+  summarise_if(is.numeric, mean) %>%
+  mutate_if(is.numeric,to_perc) %>%
+  ggradar(base.size = 1, plot.legend = FALSE) +
+  scale_color_manual(values = c("steelblue", "darkred"))
+  
+```
+</div>
+
+
+Another way to present dendrogram, however not that insightful, is very fancy so I will just drop it here since it is very nice plot to show :)
+
+```{r, echo =FALSE, fig.align= "center", fig.width= 10}
+#ggd1 <- as.ggdend(dend)
+
+#ggplot(ggd1, labels = F) + 
+#  scale_y_reverse(expand = c(0.2, 0)) +
+#  coord_polar(theta="x")
+```
